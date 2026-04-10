@@ -10,6 +10,9 @@ on:
   
 jobs:
   build-push-images:
+    permissions:
+      contents: read
+      packages: write
     name: Build and push images (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -53,11 +56,12 @@ jobs:
       - name: Build and push platform-specific image
         run: |
           set -euo pipefail
-          echo "${DOCKER_PASSWORD}" | docker login --username "${DOCKER_USERNAME}" --password-stdin quay.io
+          echo "${DOCKER_PASSWORD}" | docker login --username "${DOCKER_USERNAME}" --password-stdin ghcr.io
           IMAGE_TAG="${{ steps.version-tag.outputs.version-tag }}-${{ steps.platform.outputs.arch-tag }}" make docker-build docker-push
         env:
-          DOCKER_USERNAME: ${{ secrets.QUAY_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.QUAY_TOKEN }}
+          DOCKER_USERNAME: ${{ github.actor }}
+          DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_NAMESPACE: ghcr.io/${{ github.repository_owner }}
 
   create-manifest:
     name: Create multi-arch manifest
@@ -65,6 +69,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: needs.build-push-images.result == 'success'
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -83,20 +90,20 @@ jobs:
       - name: Login to registry
         run: |
           set -euo pipefail
-          echo "${DOCKER_PASSWORD}" | docker login --username "${DOCKER_USERNAME}" --password-stdin quay.io
+          echo "${DOCKER_PASSWORD}" | docker login --username "${DOCKER_USERNAME}" --password-stdin ghcr.io
         env:
-          DOCKER_USERNAME: ${{ secrets.QUAY_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.QUAY_TOKEN }}
+          DOCKER_USERNAME: ${{ github.actor }}
+          DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create and push multi-arch manifest
         run: |
           set -ex
-          IMAGE_NAME="quay.io/argoprojlabs/argocd-image-updater"
+          IMAGE_NAME="ghcr.io/${{ github.repository_owner }}/argocd-image-updater"
           VERSION_TAG="${{ steps.version-tag.outputs.version-tag }}"
 
           # Resolve each platform tag to a single-image digest reference (image@sha256:...).
           # Registry or build may expose -amd64/-arm64 as manifest lists; we take the platform digest.
-          # We must use digest refs only; mixing tag refs in the list can make Quay reject the push.
+          # We must use digest refs only; mixing tag refs in the list can make GHCR reject the push.
           get_platform_ref() {
             local tag=$1
             local arch=$2

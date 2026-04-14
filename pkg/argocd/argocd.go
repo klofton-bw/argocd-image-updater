@@ -593,6 +593,9 @@ func newImageFromManifestTargetSettings(settings *iuapi.ManifestTarget, img *Ima
 
 	// Layer the new settings on top, only if they are explicitly set (non-nil).
 	if settings.Helm != nil {
+		if settings.Helm.SourceIndex != nil {
+			img.HelmSourceIndex = int(*settings.Helm.SourceIndex)
+		}
 		if settings.Helm.ChartName != nil {
 			img.HelmChartName = *settings.Helm.ChartName
 		}
@@ -830,7 +833,13 @@ func SetHelmImage(ctx context.Context, app *argocdapi.Application, newImage *ima
 	}
 
 	var appSource *argocdapi.ApplicationSource
-	if applicationImage.HelmChartName != "" && app.Spec.HasMultipleSources() {
+	if app.Spec.HasMultipleSources() && applicationImage.HelmSourceIndex >= 0 {
+		sources := app.Spec.Sources
+		if applicationImage.HelmSourceIndex >= len(sources) {
+			return fmt.Errorf("sourceIndex %d is out of range for application %s (has %d sources)", applicationImage.HelmSourceIndex, app.Name, len(sources))
+		}
+		appSource = &sources[applicationImage.HelmSourceIndex]
+	} else if app.Spec.HasMultipleSources() && applicationImage.HelmChartName != "" {
 		for i := range app.Spec.Sources {
 			s := &app.Spec.Sources[i]
 			if s.Chart == applicationImage.HelmChartName {

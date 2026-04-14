@@ -394,6 +394,7 @@ func newImageFromCommonUpdateSettings(ctx context.Context, settings *iuapi.Commo
 		PullSecret:         "",
 		IgnoreTags:         []string{},
 		Platforms:          []string{},
+		HelmSourceIndex:    -1,
 		HelmImageName:      "",
 		HelmImageTag:       "",
 		HelmImageSpec:      "",

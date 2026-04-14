@@ -1354,9 +1354,10 @@ func Test_SetHelmImage(t *testing.T) {
 		img := image.NewFromIdentifier("foobar=jannfis/foobar:1.0.1")
 		wbc := &WriteBackConfig{Target: "helmvalues:."}
 		appImage := &Image{
-			HelmChartName: "my-app",
-			HelmImageName: "image.name",
-			HelmImageTag:  "image.tag",
+			HelmSourceIndex: -1,
+			HelmChartName:   "my-app",
+			HelmImageName:   "image.name",
+			HelmImageTag:    "image.tag",
 		}
 		err := SetHelmImage(context.Background(), app, img, wbc, appImage)
 		require.NoError(t, err)
@@ -1401,9 +1402,10 @@ func Test_SetHelmImage(t *testing.T) {
 		img := image.NewFromIdentifier("foobar=jannfis/foobar:1.0.1")
 		wbc := &WriteBackConfig{Target: "helmvalues:."}
 		appImage := &Image{
-			HelmChartName: "does-not-exist",
-			HelmImageName: "image.name",
-			HelmImageTag:  "image.tag",
+			HelmSourceIndex: -1,
+			HelmChartName:   "does-not-exist",
+			HelmImageName:   "image.name",
+			HelmImageTag:    "image.tag",
 		}
 		err := SetHelmImage(context.Background(), app, img, wbc, appImage)
 		require.Error(t, err)

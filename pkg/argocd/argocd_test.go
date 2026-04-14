@@ -1984,6 +1984,7 @@ func Test_parseImageList(t *testing.T) {
 			PullSecret:         "",
 			IgnoreTags:         []string{},
 			Platforms:          []string{},
+			HelmSourceIndex:    -1,
 			HelmImageName:      "",
 			HelmImageTag:       "",
 			HelmImageSpec:      "",

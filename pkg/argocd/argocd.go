@@ -740,6 +740,31 @@ func mergeHelmParams(src []argocdapi.HelmParameter, merge []argocdapi.HelmParame
 
 // GetHelmImage gets the image set in Application source matching new image
 // or an empty string if match is not found
+// selectHelmSource returns the ApplicationSource to use for the given image.
+// It respects HelmSourceIndex and HelmChartName, falling back to getApplicationSource.
+func selectHelmSource(ctx context.Context, app *argocdapi.Application, wbc *WriteBackConfig, img *Image) (*argocdapi.ApplicationSource, error) {
+	if app.Spec.HasMultipleSources() && img.HelmSourceIndex >= 0 {
+		sources := app.Spec.Sources
+		if img.HelmSourceIndex >= len(sources) {
+			return nil, fmt.Errorf("sourceIndex %d is out of range for application %s (has %d sources)", img.HelmSourceIndex, app.Name, len(sources))
+		}
+		s := &sources[img.HelmSourceIndex]
+		if !s.IsHelm() {
+			return nil, fmt.Errorf("source at index %d in application %s is not a Helm source", img.HelmSourceIndex, app.Name)
+		}
+		return s, nil
+	} else if app.Spec.HasMultipleSources() && img.HelmChartName != "" {
+		for i := range app.Spec.Sources {
+			s := &app.Spec.Sources[i]
+			if s.Chart == img.HelmChartName {
+				return s, nil
+			}
+		}
+		return nil, fmt.Errorf("no Helm source with chart name %q found in application %s", img.HelmChartName, app.Name)
+	}
+	return getApplicationSource(ctx, app, wbc), nil
+}
+
 func GetHelmImage(ctx context.Context, app *argocdapi.Application, wbc *WriteBackConfig, applicationImage *Image) (string, error) {
 
 	if appType := getApplicationType(app, wbc); appType != ApplicationTypeHelm {
@@ -761,7 +786,10 @@ func GetHelmImage(ctx context.Context, app *argocdapi.Application, wbc *WriteBac
 		}
 	}
 
-	appSource := getApplicationSource(ctx, app, wbc)
+	appSource, err := selectHelmSource(ctx, app, wbc, applicationImage)
+	if err != nil {
+		return "", err
+	}
 
 	if appSource.Helm == nil {
 		return "", nil
@@ -833,30 +861,9 @@ func SetHelmImage(ctx context.Context, app *argocdapi.Application, newImage *ima
 		}
 	}
 
-	var appSource *argocdapi.ApplicationSource
-	if app.Spec.HasMultipleSources() && applicationImage.HelmSourceIndex >= 0 {
-		sources := app.Spec.Sources
-		if applicationImage.HelmSourceIndex >= len(sources) {
-			return fmt.Errorf("sourceIndex %d is out of range for application %s (has %d sources)", applicationImage.HelmSourceIndex, app.Name, len(sources))
-		}
-		s := &sources[applicationImage.HelmSourceIndex]
-		if !s.IsHelm() {
-			return fmt.Errorf("source at index %d in application %s is not a Helm source", applicationImage.HelmSourceIndex, app.Name)
-		}
-		appSource = s
-	} else if app.Spec.HasMultipleSources() && applicationImage.HelmChartName != "" {
-		for i := range app.Spec.Sources {
-			s := &app.Spec.Sources[i]
-			if s.Chart == applicationImage.HelmChartName {
-				appSource = s
-				break
-			}
-		}
-		if appSource == nil {
-			return fmt.Errorf("no Helm source with chart name %q found in application %s", applicationImage.HelmChartName, app.Name)
-		}
-	} else {
-		appSource = getApplicationSource(ctx, app, wbc)
+	appSource, err := selectHelmSource(ctx, app, wbc, applicationImage)
+	if err != nil {
+		return err
 	}
 
 	if appSource.Helm == nil {

@@ -367,7 +367,27 @@ func marshalParamsOverride(ctx context.Context, applicationImages *ApplicationIm
 	wbc := applicationImages.WriteBackConfig
 
 	appType := GetApplicationType(app, wbc)
-	appSource := GetApplicationSource(ctx, app, wbc)
+
+	// For Helm applications, use selectHelmSource so that sourceIndex/chartName
+	// on the image configuration resolve to the same source that SetHelmImage mutated.
+	// Fall back to GetApplicationSource for Kustomize and single-source apps.
+	var appSource *v1alpha1.ApplicationSource
+	if appType == ApplicationTypeHelm {
+		// Use the first image that has an explicit source selector; otherwise fall back.
+		var srcErr error
+		appSource = GetApplicationSource(ctx, app, wbc)
+		for _, img := range applicationImages.Images {
+			if img.HelmSourceIndex >= 0 || img.HelmChartName != "" {
+				appSource, srcErr = selectHelmSource(ctx, app, wbc, img)
+				if srcErr != nil {
+					return nil, srcErr
+				}
+				break
+			}
+		}
+	} else {
+		appSource = GetApplicationSource(ctx, app, wbc)
+	}
 
 	switch appType {
 	case ApplicationTypeKustomize:

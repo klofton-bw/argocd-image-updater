@@ -367,27 +367,7 @@ func marshalParamsOverride(ctx context.Context, applicationImages *ApplicationIm
 	wbc := applicationImages.WriteBackConfig
 
 	appType := GetApplicationType(app, wbc)
-
-	// For Helm applications, use selectHelmSource so that sourceIndex/chartName
-	// on the image configuration resolve to the same source that SetHelmImage mutated.
-	// Fall back to GetApplicationSource for Kustomize and single-source apps.
-	var appSource *v1alpha1.ApplicationSource
-	if appType == ApplicationTypeHelm {
-		// Use the first image that has an explicit source selector; otherwise fall back.
-		var srcErr error
-		appSource = GetApplicationSource(ctx, app, wbc)
-		for _, img := range applicationImages.Images {
-			if img.HelmSourceIndex >= 0 || img.HelmChartName != "" {
-				appSource, srcErr = selectHelmSource(ctx, app, wbc, img)
-				if srcErr != nil {
-					return nil, srcErr
-				}
-				break
-			}
-		}
-	} else {
-		appSource = GetApplicationSource(ctx, app, wbc)
-	}
+	appSource := GetApplicationSource(ctx, app, wbc)
 
 	switch appType {
 	case ApplicationTypeKustomize:
@@ -414,11 +394,10 @@ func marshalParamsOverride(ctx context.Context, applicationImages *ApplicationIm
 		mergeKustomizeOverride(&params, &newParams)
 		override, err = marshalWithIndent(params, defaultIndent)
 	case ApplicationTypeHelm:
-		if appSource.Helm == nil {
-			return []byte{}, nil
-		}
-
 		if wbc != nil && !strings.HasPrefix(filepath.Base(wbc.Target), common.DefaultTargetFilePrefix) {
+			// helmvalues path: values file write-back.
+			// Resolve the source per-image so that images targeting different
+			// Helm sources each read parameters from the correct source.
 			images := GetImagesAndAliasesFromApplication(applicationImages)
 
 			var helmNewValues yaml.Node
@@ -450,6 +429,15 @@ func marshalParamsOverride(ctx context.Context, applicationImages *ApplicationIm
 					continue
 				}
 
+				// Resolve the Helm source for this specific image.
+				imgSource, srcErr := selectHelmSource(ctx, app, wbc, c)
+				if srcErr != nil {
+					return nil, srcErr
+				}
+				if imgSource.Helm == nil {
+					continue
+				}
+
 				helmParamName, helmParamVersion := getHelmParamNames(c)
 
 				if helmParamName == "" {
@@ -464,7 +452,7 @@ func marshalParamsOverride(ctx context.Context, applicationImages *ApplicationIm
 					}
 				} else {
 					// image-tag is present, so continue to process image-tag
-					helmParamVer := getHelmParam(appSource.Helm.Parameters, helmParamVersion)
+					helmParamVer := getHelmParam(imgSource.Helm.Parameters, helmParamVersion)
 					var tagValue string
 					if helmParamVer == nil {
 						// Parameter not pre-defined in the Application - use the image's tag data as fallback
@@ -482,7 +470,7 @@ func marshalParamsOverride(ctx context.Context, applicationImages *ApplicationIm
 					}
 				}
 
-				helmParamN := getHelmParam(appSource.Helm.Parameters, helmParamName)
+				helmParamN := getHelmParam(imgSource.Helm.Parameters, helmParamName)
 				// Determine which value to use for the image name parameter
 				var valueToSet string
 				if helmParamN == nil {
@@ -517,6 +505,30 @@ func marshalParamsOverride(ctx context.Context, applicationImages *ApplicationIm
 
 			override, err = marshalWithIndent(&helmNewValues, defaultIndent)
 		} else {
+			// helmOverride path: .argocd-source-*.yaml write-back.
+			// This format holds a single helm.parameters block, so all images
+			// must target the same Helm source. Resolve per-image and fail fast
+			// if any image resolves to a different source.
+			var resolvedSource *v1alpha1.ApplicationSource
+			for _, img := range applicationImages.Images {
+				imgSource, srcErr := selectHelmSource(ctx, app, wbc, img)
+				if srcErr != nil {
+					return nil, srcErr
+				}
+				if resolvedSource == nil {
+					resolvedSource = imgSource
+				} else if resolvedSource != imgSource {
+					return nil, fmt.Errorf("images in application %s target different Helm sources; cannot write parameters from multiple sources to a single override file", app.Name)
+				}
+			}
+			if resolvedSource != nil {
+				appSource = resolvedSource
+			}
+
+			if appSource.Helm == nil {
+				return []byte{}, nil
+			}
+
 			var params helmOverride
 			newParams := helmOverride{
 				Helm: helmParameters{

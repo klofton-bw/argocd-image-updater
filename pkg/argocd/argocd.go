@@ -754,13 +754,21 @@ func selectHelmSource(ctx context.Context, app *argocdapi.Application, wbc *Writ
 		}
 		return s, nil
 	} else if app.Spec.HasMultipleSources() && img.HelmChartName != "" {
+		var matches []*argocdapi.ApplicationSource
 		for i := range app.Spec.Sources {
 			s := &app.Spec.Sources[i]
 			if s.Chart == img.HelmChartName {
-				return s, nil
+				matches = append(matches, s)
 			}
 		}
-		return nil, fmt.Errorf("no Helm source with chart name %q found in application %s", img.HelmChartName, app.Name)
+		switch len(matches) {
+		case 0:
+			return nil, fmt.Errorf("no Helm source with chart name %q found in application %s", img.HelmChartName, app.Name)
+		case 1:
+			return matches[0], nil
+		default:
+			return nil, fmt.Errorf("chart name %q is ambiguous in application %s: %d sources match; use sourceIndex to select a specific source", img.HelmChartName, app.Name, len(matches))
+		}
 	}
 	return getApplicationSource(ctx, app, wbc), nil
 }

@@ -7,7 +7,7 @@ on:
 
 env:
   IMAGE: ghcr.io/klofton-bw/argocd-image-updater
-  TAG: v1.1.0
+  TAG: v1.1.1
 
 jobs:
   build:
